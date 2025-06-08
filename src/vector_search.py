@@ -1,5 +1,5 @@
 """
-Vector search module for querying legal documents.
+Vector search module for querying legal documents using LangChain.
 Provides semantic search capabilities across the document corpus.
 """
 
@@ -7,18 +7,17 @@ import logging
 from typing import List, Dict, Optional
 from pathlib import Path
 
-import chromadb
-from chromadb.config import Settings
+from langchain_community.embeddings import OllamaEmbeddings
+from langchain_community.vectorstores import Chroma
 
-from src.config import VECTOR_STORE_PATH, EMBEDDING_MODEL
-from src.vector_processor import QwenEmbedder
+from src.config import VECTOR_STORE_PATH, EMBEDDING_MODEL, OLLAMA_HOST
 
 logger = logging.getLogger(__name__)
 
 
 class VectorSearcher:
     """
-    Semantic search interface for legal documents.
+    Semantic search interface for legal documents using LangChain.
     """
     
     def __init__(self, vector_store_path: str = VECTOR_STORE_PATH):
@@ -27,174 +26,158 @@ class VectorSearcher:
         if not self.vector_store_path.exists():
             raise ValueError(f"Vector store not found at {self.vector_store_path}")
         
-        # Initialize ChromaDB client
-        self.client = chromadb.PersistentClient(
-            path=str(self.vector_store_path),
-            settings=Settings(anonymized_telemetry=False)
+        # Initialize LangChain components
+        self.embeddings = OllamaEmbeddings(
+            model=EMBEDDING_MODEL,
+            base_url=OLLAMA_HOST
         )
         
-        # Get collection
-        try:
-            self.collection = self.client.get_collection("legal_documents")
-            logger.info(f"Connected to vector store with {self.collection.count()} chunks")
-        except Exception as e:
-            raise ValueError(f"Failed to access vector collection: {e}")
+        self.vector_store = Chroma(
+            collection_name="legal_documents",
+            embedding_function=self.embeddings,
+            persist_directory=str(self.vector_store_path)
+        )
         
-        # Initialize embedder
-        self.embedder = QwenEmbedder(model=EMBEDDING_MODEL)
+        logger.info(f"VectorSearcher initialized with LangChain components")
+        logger.info(f"Vector store: {self.vector_store_path}")
     
-    def search(self, 
-               query: str, 
-               n_results: int = 10,
-               category: Optional[str] = None,
-               exhibit_number: Optional[int] = None) -> List[Dict]:
+    def search(
+        self,
+        query: str,
+        n_results: int = 10,
+        category: Optional[str] = None,
+        exhibit_number: Optional[int] = None
+    ) -> List[Dict]:
         """
-        Perform semantic search across documents.
+        Search documents using semantic similarity.
         
         Args:
             query: Search query text
             n_results: Number of results to return
             category: Filter by document category
-            exhibit_number: Filter by specific exhibit number
+            exhibit_number: Filter by exhibit number
             
         Returns:
             List of search results with metadata
         """
-        if not query or not query.strip():
-            raise ValueError("Query cannot be empty")
-        
-        # Generate query embedding
         try:
-            query_embedding = self.embedder.embed_text(query)
-        except Exception as e:
-            logger.error(f"Failed to generate query embedding: {e}")
-            raise
-        
-        # Build where clause for filtering
-        where_clause = {}
-        if category:
-            where_clause["category"] = category
-        if exhibit_number is not None:
-            where_clause["exhibit_number"] = exhibit_number
-        
-        # Perform search
-        try:
-            if where_clause:
-                results = self.collection.query(
-                    query_embeddings=[query_embedding],
-                    n_results=n_results,
-                    where=where_clause,
-                    include=["documents", "metadatas", "distances"]
-                )
-            else:
-                results = self.collection.query(
-                    query_embeddings=[query_embedding],
-                    n_results=n_results,
-                    include=["documents", "metadatas", "distances"]
-                )
-        except Exception as e:
-            logger.error(f"Search failed: {e}")
-            raise
-        
-        return self._format_results(results)
-    
-    def search_by_bates_range(self, bates_start: int, bates_end: int) -> List[Dict]:
-        """
-        Search for documents within a Bates number range.
-        """
-        where_clause = {
-            "$and": [
-                {"bates_start": {"$lte": bates_end}},
-                {"bates_end": {"$gte": bates_start}}
-            ]
-        }
-        
-        try:
-            # Use get instead of query for metadata-only search
-            results = self.collection.get(
-                where=where_clause,
-                include=["documents", "metadatas"],
-                limit=100  # Get all matching documents
+            # Build filter criteria
+            filter_dict = {}
+            if category:
+                filter_dict["category"] = category
+            if exhibit_number is not None:
+                filter_dict["exhibit_number"] = exhibit_number
+            
+            # Use LangChain's similarity search
+            docs = self.vector_store.similarity_search_with_relevance_scores(
+                query,
+                k=n_results,
+                filter=filter_dict if filter_dict else None
             )
             
-            # Format results to match query output structure
-            formatted_results = {
-                'ids': [results['ids']],
-                'documents': [results['documents']],
-                'metadatas': [results['metadatas']]
-            }
+            # Format results
+            results = []
+            for doc, score in docs:
+                result = {
+                    "text": doc.page_content,
+                    "relevance": score,
+                    "filename": doc.metadata.get("filename", "Unknown"),
+                    "category": doc.metadata.get("category", "Unknown"),
+                    "exhibit_number": doc.metadata.get("exhibit_number", 0),
+                    "page": doc.metadata.get("page", 0),
+                    "bates_start": int(doc.metadata.get("bates_start", "0")),
+                    "bates_end": int(doc.metadata.get("bates_end", "0")),
+                    "summary": doc.metadata.get("summary", "")
+                }
+                results.append(result)
+            
+            return results
+            
         except Exception as e:
-            logger.error(f"Bates range search failed: {e}")
-            raise
-        
-        return self._format_results(formatted_results, include_score=False)
-    
-    def get_categories(self) -> List[str]:
-        """Get list of unique categories in the collection."""
-        # ChromaDB doesn't have a direct way to get unique values
-        # So we'll get a sample and extract unique categories
-        try:
-            sample = self.collection.get(limit=1000, include=["metadatas"])
-            categories = set()
-            for metadata in sample['metadatas']:
-                if metadata and 'category' in metadata:
-                    categories.add(metadata['category'])
-            return sorted(list(categories))
-        except Exception as e:
-            logger.error(f"Failed to get categories: {e}")
+            logger.error(f"Search failed: {e}")
             return []
     
-    def _format_results(self, results: Dict, include_score: bool = True) -> List[Dict]:
-        """Format ChromaDB results into a consistent structure."""
-        formatted_results = []
-        
-        if not results or not results.get('ids'):
-            return formatted_results
-        
-        # ChromaDB returns results in nested lists
-        ids = results['ids'][0] if results['ids'] else []
-        documents = results['documents'][0] if results['documents'] else []
-        metadatas = results['metadatas'][0] if results['metadatas'] else []
-        distances = results.get('distances', [[]])[0] if include_score else []
-        
-        for i in range(len(ids)):
-            result = {
-                'id': ids[i],
-                'text': documents[i] if i < len(documents) else '',
-                'metadata': metadatas[i] if i < len(metadatas) else {}
-            }
+    def search_by_bates_range(self, start: int, end: int) -> List[Dict]:
+        """
+        Search documents by Bates number range.
+        """
+        try:
+            # Get all documents and filter by Bates range
+            all_docs = self.vector_store.get()
             
-            # Add relevance score if available (convert distance to similarity)
-            if include_score and i < len(distances):
-                # Cosine distance to similarity score
-                result['relevance'] = 1.0 - distances[i]
+            results = []
+            seen_exhibits = set()
             
-            # Extract key metadata fields
-            metadata = result['metadata']
-            result['filename'] = metadata.get('filename', 'Unknown')
-            result['category'] = metadata.get('category', 'Uncategorized')
-            result['exhibit_number'] = metadata.get('exhibit_number', 0)
-            result['bates_start'] = metadata.get('bates_start', 0)
-            result['bates_end'] = metadata.get('bates_end', 0)
-            result['page'] = metadata.get('page', 0)
-            result['summary'] = metadata.get('summary', '')
+            for i, metadata in enumerate(all_docs.get("metadatas", [])):
+                if not metadata:
+                    continue
+                    
+                # Check if document falls within Bates range
+                doc_start = int(metadata.get("bates_start", "0"))
+                doc_end = int(metadata.get("bates_end", "0"))
+                exhibit_num = metadata.get("exhibit_number")
+                
+                if (doc_start <= end and doc_end >= start and 
+                    exhibit_num not in seen_exhibits):
+                    seen_exhibits.add(exhibit_num)
+                    
+                    # Get the document content
+                    doc_text = all_docs["documents"][i] if i < len(all_docs.get("documents", [])) else ""
+                    
+                    result = {
+                        "text": doc_text,
+                        "relevance": 1.0,  # Exact match
+                        "filename": metadata.get("filename", "Unknown"),
+                        "category": metadata.get("category", "Unknown"),
+                        "exhibit_number": exhibit_num,
+                        "page": metadata.get("page", 0),
+                        "bates_start": doc_start,
+                        "bates_end": doc_end,
+                        "summary": metadata.get("summary", "")
+                    }
+                    results.append(result)
             
-            formatted_results.append(result)
-        
-        return formatted_results
+            return sorted(results, key=lambda x: x["bates_start"])
+            
+        except Exception as e:
+            logger.error(f"Bates range search failed: {e}")
+            return []
     
     def get_stats(self) -> Dict:
         """Get statistics about the vector store."""
         try:
-            count = self.collection.count()
-            categories = self.get_categories()
+            collection = self.vector_store._collection
+            count = collection.count()
+            
+            # Get unique categories and exhibits
+            results = collection.get(include=["metadatas"])
+            
+            categories = set()
+            exhibits = set()
+            
+            if results and results["metadatas"]:
+                for metadata in results["metadatas"]:
+                    if metadata.get("category"):
+                        categories.add(metadata["category"])
+                    if metadata.get("exhibit_number"):
+                        exhibits.add(metadata["exhibit_number"])
             
             return {
-                'total_chunks': count,
-                'categories': categories,
-                'num_categories': len(categories),
-                'collection_name': self.collection.name
+                "total_chunks": count,
+                "categories": sorted(list(categories)),
+                "num_categories": len(categories),
+                "num_exhibits": len(exhibits)
             }
         except Exception as e:
-            logger.error(f"Failed to get stats: {e}")
-            return {'error': str(e)}
+            logger.error(f"Error getting stats: {e}")
+            return {
+                "total_chunks": 0,
+                "categories": [],
+                "num_categories": 0,
+                "num_exhibits": 0
+            }
+    
+    def get_categories(self) -> List[str]:
+        """Get list of unique categories in the vector store."""
+        stats = self.get_stats()
+        return stats.get("categories", [])

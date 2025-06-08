@@ -86,6 +86,10 @@ EMBEDDING_MODEL = os.getenv("OLLAMA_EMBEDDING_MODEL", "hf.co/Casual-Autopsy/snow
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "750"))
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "150"))
 PDF_DPI = int(os.getenv("PDF_DPI", "300"))
+EMBEDDING_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "16"))
+MAX_CHUNKS_PER_DOCUMENT = int(os.getenv("MAX_CHUNKS_PER_DOCUMENT", "100"))
+ENABLE_VISION_OCR = os.getenv("ENABLE_VISION_OCR", "false").lower() == "true"
+VISION_OCR_MODEL = os.getenv("VISION_OCR_MODEL", "llava")
 
 # --- PostgreSQL Storage Configuration ---
 ENABLE_POSTGRES_STORAGE = os.getenv("ENABLE_POSTGRES_STORAGE", "false").lower() == "true"

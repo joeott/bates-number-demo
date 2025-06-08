@@ -75,7 +75,7 @@ def main():
     if config.ENABLE_VECTOR_SEARCH:
         try:
             from src.vector_processor import VectorProcessor
-            vector_processor = VectorProcessor(use_vision=False)  # Start with text extraction
+            vector_processor = VectorProcessor()  # Now using LangChain components
             logger.info("Vector search enabled - documents will be indexed for semantic search")
         except Exception as e:
             logger.warning(f"Failed to initialize vector processor: {e}")
@@ -110,10 +110,11 @@ def main():
     for doc_path in documents_to_process:
         logger.info(f"Processing document: {doc_path.name}")
 
-        # 1. Categorize, summarize, and generate descriptive filename using LLM
-        category = llm_categorizer.categorize_document(doc_path.name)
-        summary = llm_categorizer.summarize_document(doc_path.name)
-        descriptive_name = llm_categorizer.generate_descriptive_filename(doc_path.name)
+        # 1. Categorize, summarize, and generate descriptive filename using LLM (parallel execution)
+        llm_results = llm_categorizer.process_document_parallel(doc_path.name)
+        category = llm_results["category"]
+        summary = llm_results["summary"]
+        descriptive_name = llm_results["descriptive_name"]
 
         # 2. Bates Number
         sanitized_filename_base = sanitize_filename(doc_path.stem)
@@ -167,8 +168,11 @@ def main():
                     "processed_date": datetime.now().isoformat()
                 }
                 chunk_ids, full_text, page_texts = vector_processor.process_document(
-                    str(exhibit_marked_output_path),
-                    metadata
+                    exhibit_marked_output_path,
+                    current_exhibit_number,
+                    category,
+                    bates_start,
+                    bates_end
                 )
                 logger.info(f"Created {len(chunk_ids)} vector chunks for {exhibit_marked_pdf_name}")
             except Exception as e:
@@ -181,19 +185,12 @@ def main():
                 # If we don't have text from vector processing, extract it
                 if not full_text and not vector_processor:
                     try:
-                        from src.vector_processor import TextExtractor
-                        extractor = TextExtractor(use_vision=False)
-                        extracted_pages = extractor.extract_text_from_pdf(str(exhibit_marked_output_path))
+                        from src.vector_processor import PDFToLangChainLoader
+                        loader = PDFToLangChainLoader(str(exhibit_marked_output_path))
+                        documents = loader.load()
                         
-                        page_texts = []
-                        full_text_parts = []
-                        for page_data in extracted_pages:
-                            if 'raw_text' in page_data['content']:
-                                page_text = page_data['content']['raw_text']
-                                page_texts.append(page_text)
-                                if page_text.strip():
-                                    full_text_parts.append(page_text)
-                        full_text = "\n\n".join(full_text_parts)
+                        page_texts = [doc.page_content for doc in documents]
+                        full_text = "\n\n".join(page_texts)
                     except Exception as e:
                         logger.error(f"Failed to extract text for PostgreSQL storage: {e}")
                 
