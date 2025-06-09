@@ -1,188 +1,301 @@
-# Context 2: Verification Criteria and Task List
+# Document Processing Pipeline Verification Criteria
 
 ## Overview
-This document provides detailed verification criteria and a comprehensive task list for implementing the AI-Powered Bates Numbering & Exhibit Marking Tool as specified in context_1_implementation_plan.md.
+This document provides comprehensive verification criteria for the document processing pipeline, including specific function references, expected behaviors, and validation points.
 
-## Verification Criteria
+## Pipeline Architecture
 
-### 1. Project Structure Verification
-- [ ] Correct directory structure created matching the specification
-- [ ] All directories have proper permissions for read/write operations
-- [ ] .gitignore properly excludes sensitive files and output directories
-- [ ] Empty directories include .gitkeep files for git tracking
+### Main Entry Point
+- **File**: `src/main.py`
+- **Function**: `main()` (Line 22-288)
+- **Purpose**: Orchestrates the entire document processing workflow
 
-### 2. Environment Setup Verification
-- [ ] requirements.txt includes all necessary dependencies with version specifications
-- [ ] .env.template provides clear guidance for API key configuration
-- [ ] Virtual environment can be created and activated successfully
-- [ ] All dependencies install without conflicts
+### Core Components
+1. **LLM Handler**: Document categorization and metadata extraction
+2. **PDF Processor**: Bates numbering and exhibit marking
+3. **Vector Processor**: Text extraction and embedding creation
+4. **Database Storage**: PostgreSQL text storage
+5. **Document Orchestrator**: LCEL chain coordination
 
-### 3. Configuration Module Verification
-- [ ] config.py loads environment variables correctly
-- [ ] Missing API key triggers appropriate warning
-- [ ] Default paths resolve correctly relative to project root
-- [ ] LLM prompts are properly formatted and stored
+## Detailed Pipeline Flow
 
-### 4. LLM Integration Verification
-- [ ] LLMCategorizer initializes with valid API credentials
-- [ ] Document categorization returns valid categories from predefined list
-- [ ] Error handling for API failures returns "Miscellaneous" fallback
-- [ ] API calls use appropriate temperature and token settings
-- [ ] Support for alternative OpenAI-compatible endpoints
+### 1. Initialization Phase
 
-### 5. PDF Processing Verification
-- [ ] Bates numbering appears on correct position (bottom-right)
-- [ ] Bates numbers increment sequentially across all pages
-- [ ] Exhibit stamps appear above Bates numbers without overlap
-- [ ] Font sizes and styles render correctly
-- [ ] Page dimensions handled correctly for various PDF sizes
-- [ ] Error handling prevents partial processing
+#### Component Initialization (main.py)
+- **Lines 94-97**: Initialize LLMCategorizer
+  - **Success**: Logger shows "Initializing LLM with provider: {provider}"
+  - **Failure**: ValueError with message "Failed to initialize LLM Categorizer"
+  - **Validation**: Check LLM provider configuration (openai/ollama)
 
-### 6. Main Script Verification
-- [ ] Command-line arguments parse correctly
-- [ ] Input directory validation prevents errors
-- [ ] Output directory structure created automatically
-- [ ] Documents process in sorted order for consistency
-- [ ] CSV log contains all required fields
-- [ ] Error in one document doesn't halt entire batch
-- [ ] Logging provides clear progress indicators
+- **Lines 102-110**: Initialize VectorProcessor (optional)
+  - **Success**: "Vector search enabled - documents will be indexed for semantic search"
+  - **Failure**: Warning "Failed to initialize vector processor"
+  - **Non-critical**: Pipeline continues without vector search
 
-### 7. Output Verification
-- [ ] Bates-numbered PDFs saved in correct subdirectory
-- [ ] Exhibit-marked PDFs saved in correct subdirectory
-- [ ] CSV log accurately reflects all processed documents
-- [ ] Filenames are sanitized for filesystem compatibility
-- [ ] No data loss or corruption during processing
+- **Lines 111-122**: Initialize PostgresStorage (optional)
+  - **Success**: "PostgreSQL storage enabled - document text will be stored in database"
+  - **Failure**: Warning "Failed to initialize PostgreSQL storage"
+  - **Non-critical**: Pipeline continues without database storage
 
-## Detailed Task List
+- **Lines 124-133**: Initialize DocumentOrchestrator
+  - **Required**: All core components must be passed
+  - **Success**: No specific log, but directories created
 
-### Phase 1: Project Setup
-1. **Create Directory Structure**
-   - Create root directory `bates_number_demo/`
-   - Create subdirectories: `src/`, `input_documents/`, `output/`, `ai_docs/`
-   - Add .gitkeep files to empty directories
+### 2. Document Discovery
+- **Lines 136-141**: Find PDF files
+  - **Success**: "Found {n} PDF documents in '{dir}'"
+  - **Failure**: "No PDF documents found" (exits with code 0)
+  - **Validation**: Case-insensitive PDF detection (*.pdf, *.PDF)
 
-2. **Create Configuration Files**
-   - Create `.gitignore` with comprehensive exclusions
-   - Create `requirements.txt` with dependencies
-   - Create `.env.template` with API key template
-   - Create initial `README.md` with setup instructions
+### 3. Processing Execution
 
-### Phase 2: Core Module Implementation
-3. **Implement Configuration Module**
-   - Create `src/__init__.py` (empty)
-   - Create `src/config.py` with environment loading
-   - Define all configuration constants
-   - Add categorization system prompt
+#### Batch vs Sequential Processing (main.py)
+- **Lines 170-224**: Processing logic
+  - **Batch Mode**: When `batch_size > 0` and `total_documents > batch_size`
+    - Log: "Processing documents in batches of {size}"
+    - Log: "Processing batch {n}/{total}"
+  - **Sequential Mode**: Default processing
+    - Uses single batch with all documents
 
-4. **Implement Utility Module**
-   - Create `src/utils.py`
-   - Implement `setup_logging()` function
-   - Implement `ensure_dir_exists()` function
-   - Implement `sanitize_filename()` function
+### 4. Document Orchestrator Pipeline (document_orchestrator.py)
 
-5. **Implement LLM Handler**
-   - Create `src/llm_handler.py`
-   - Implement `LLMCategorizer` class
-   - Add OpenAI client initialization
-   - Implement `categorize_document()` method
-   - Add error handling and logging
+#### LCEL Chain Construction (Lines 132-173)
+The processing chain consists of:
 
-### Phase 3: PDF Processing Implementation
-6. **Implement PDF Processor**
-   - Create `src/pdf_processor.py`
-   - Implement `PDFProcessor` class
-   - Implement `_add_stamp_to_page()` method
-   - Implement `bates_stamp_pdf()` method
-   - Implement `exhibit_mark_pdf()` method
-   - Add coordinate calculations for stamp placement
+1. **Validation Chain** (`_validate_document`, Line 175-189)
+   - **Input**: DocumentInput with file_path, bates_counter, exhibit_counter
+   - **Success**: Returns dict with "success": True
+   - **Failure**: ValueError if file not found or not PDF
+   - **Log**: "Validating document: {filename}"
 
-### Phase 4: Main Application
-7. **Implement Main Script**
-   - Create `src/main.py`
-   - Add argument parsing with argparse
-   - Implement directory validation
-   - Add main processing loop
-   - Implement CSV log generation
-   - Add comprehensive error handling
+2. **LLM Chain** (`_process_with_llm`, Line 191-210)
+   - **Purpose**: Extract category, summary, and descriptive name
+   - **Success**: Returns DocumentMetadata object
+   - **Log**: "LLM processing: {filename}"
+   - **Validation**: All three fields must be populated
 
-### Phase 5: Testing and Validation
-8. **Create Test Documents**
-   - Generate sample PDFs for testing
-   - Include various document types and sizes
-   - Test filenames that require sanitization
+3. **Bates Chain** (`_apply_bates_numbering`, Line 212-242)
+   - **Purpose**: Apply Bates stamps to PDF
+   - **Success**: Returns BatesResult with start/end numbers
+   - **Log**: "Bates numbered: {start}-{end}"
+   - **Validation**: Next counter must be > current counter
 
-9. **Functional Testing**
-   - Test LLM categorization with various filenames
-   - Test Bates numbering sequence
-   - Test exhibit marking placement
-   - Test CSV log generation
-   - Test error scenarios
+4. **Exhibit Chain** (`_apply_exhibit_marking`, Line 244-282)
+   - **Purpose**: Apply exhibit stamps and organize by category
+   - **Success**: Returns ExhibitResult
+   - **Log**: "Exhibit marked: {filename}"
+   - **Creates**: Category subdirectory in exhibits folder
 
-10. **Integration Testing**
-    - Process full batch of documents
-    - Verify sequential numbering across documents
-    - Check output directory organization
-    - Validate CSV log completeness
+5. **Vector Branch** (`_process_vectors`, Line 284-309)
+   - **Conditional**: Only if vector_processor exists and success=True
+   - **Success**: Sets vector_chunks count
+   - **Log**: "Created {n} vector chunks"
+   - **Non-critical**: Errors logged but processing continues
 
-### Phase 6: Documentation and Polish
-11. **Update Documentation**
-    - Finalize README.md with examples
-    - Add usage examples with screenshots
-    - Document common issues and solutions
-    - Add configuration options reference
+6. **PostgreSQL Branch** (`_store_in_postgres`, Line 311-348)
+   - **Conditional**: Only if postgres_storage exists and success=True
+   - **Success**: Sets postgres_stored=True
+   - **Log**: "Stored in PostgreSQL with ID: {id}"
+   - **Non-critical**: Errors logged but processing continues
 
-12. **Code Quality**
-    - Run linting and format checking
-    - Add type hints where beneficial
-    - Ensure consistent coding style
-    - Add docstrings to all functions
+7. **Finalize Result** (`_finalize_result`, Line 350-381)
+   - **Purpose**: Create ProcessingResult object
+   - **Always runs**: Even on failure
+   - **Returns**: ProcessingResult with success flag
 
-## Success Metrics
-1. **Functionality**: All features work as specified
-2. **Reliability**: Processes 100+ documents without failure
-3. **Performance**: Processes documents at reasonable speed
-4. **Usability**: Clear documentation and error messages
-5. **Maintainability**: Clean, well-organized code structure
+#### Safe Processing Wrapper (Line 383-398)
+- **Function**: `_safe_process`
+- **Purpose**: Catch any unhandled exceptions
+- **On Error**: Returns ProcessingResult with success=False and error message
 
-## Testing Scenarios
+### 5. LLM Processing Details (llm_handler.py)
 
-### Scenario 1: Basic Operation
-- Place 5 PDFs in input directory
-- Run with default settings
-- Verify all outputs generated correctly
+#### LLM Initialization (Lines 84-116)
+- **OpenAI Provider** (Lines 119-129):
+  - Requires OPENAI_API_KEY
+  - Uses ChatOpenAI with temperature=0.2, max_tokens=50
+  
+- **Ollama Provider** (Lines 130-144):
+  - Verifies Ollama connection with client.list()
+  - Uses ChatOllama with temperature=0.2, num_predict=50
 
-### Scenario 2: Custom Configuration
-- Use custom exhibit prefix
-- Use custom Bates prefix
-- Specify different output directory
-- Verify customizations applied
+#### Parallel Processing Chain (Lines 175-179)
+- **Function**: `process_document_parallel` (Line 262-283)
+- **Executes**: All three operations simultaneously
+  - Categorization
+  - Summarization 
+  - Filename generation
+- **Success**: Returns dict with all three results
+- **Failure**: Returns defaults (Uncategorized, generic summary, "Document")
 
-### Scenario 3: Error Handling
-- Invalid API key
-- Missing input directory
-- Corrupted PDF file
-- Network failure during LLM call
-- Verify graceful error handling
+### 6. PDF Processing (pdf_processor.py)
 
-### Scenario 4: Large Batch
-- Process 50+ documents
-- Verify sequential numbering
-- Check memory usage
-- Validate processing time
+#### Bates Stamping (Lines 60-98)
+- **Function**: `bates_stamp_pdf`
+- **Returns**: Tuple (start_bates, end_bates, next_counter)
+- **Success Log**: "Bates stamped '{input}' to '{output}' (Bates: {start}-{end})"
+- **Stamp Position**: Lower-right corner (Line 44-45)
+- **Font**: Configurable, default from config
 
-## Completion Checklist
-- [ ] All source files created
-- [ ] Dependencies installable
-- [ ] Basic functionality working
-- [ ] Error handling implemented
-- [ ] Documentation complete
-- [ ] Testing scenarios passed
-- [ ] Code review completed
-- [ ] Ready for demo
+#### Exhibit Marking (Lines 101-125)
+- **Function**: `exhibit_mark_pdf`
+- **Returns**: Boolean success
+- **Success Log**: "Exhibit marked '{input}' as '{id}' to '{output}'"
+- **Stamp Position**: Above Bates stamp (Line 40)
+- **Color**: Red for exhibits (Line 49)
 
-## Notes
-- Prioritize core functionality over advanced features
-- Focus on reliability for legal document processing
-- Maintain clear separation of concerns
-- Keep user experience simple and intuitive
+### 7. Vector Processing (vector_processor.py)
+
+#### Document Processing (Lines 125-195)
+- **Function**: `process_document`
+- **Steps**:
+  1. Load PDF with PDFToLangChainLoader (Lines 144-150)
+  2. Split into chunks with RecursiveCharacterTextSplitter (Line 168)
+  3. Add to vector store (Line 181)
+- **Logs**:
+  - "Processing document: {name}"
+  - "Processed {name}: Pages: {n}, Chunks: {m}, Time: {t}s"
+- **Returns**: (chunk_ids, full_text, page_texts)
+
+### 8. Database Storage (db_storage.py)
+
+#### Document Storage (Lines 139-217)
+- **Function**: `store_document_text`
+- **Database Operations**:
+  1. Upsert document record (Lines 168-192)
+  2. Store individual pages if provided (Lines 195-214)
+- **Success Log**: "Stored document {exhibit_id} with {n} pages"
+- **Returns**: Document ID from database
+
+### 9. Final Output Generation
+
+#### CSV Log Generation (Lines 561-584 in document_orchestrator.py)
+- **Function**: `generate_csv_log`
+- **Creates**: exhibit_log.csv with columns:
+  - Exhibit ID
+  - Original Filename
+  - Final Filename
+  - Category
+  - Summary
+  - Bates Range
+  - Status
+  - Vector Chunks
+  - PostgreSQL Stored
+  - Error (if any)
+
+#### Summary Statistics (main.py Lines 236-279)
+- **Displays**:
+  - Total documents processed
+  - Success/failure counts
+  - Processing time and average
+  - Category breakdown
+  - Vector store statistics (if enabled)
+  - PostgreSQL statistics (if enabled)
+  - Failed document list with errors
+
+## Verification Checkpoints
+
+### Pre-Processing Validation
+1. ✓ Input directory exists
+2. ✓ PDF files found
+3. ✓ LLM provider configured
+4. ✓ Output directories created
+
+### Per-Document Validation
+1. ✓ File exists and is PDF
+2. ✓ LLM returns valid category
+3. ✓ Bates numbers applied sequentially
+4. ✓ Exhibit number incremented
+5. ✓ Output files created in correct directories
+6. ✓ Category subdirectory created
+
+### Post-Processing Validation
+1. ✓ All documents have results (success or failure)
+2. ✓ CSV log contains all documents
+3. ✓ Statistics match processed count
+4. ✓ Exit code reflects success (0) or failure (1)
+
+### Error Handling Validation
+1. ✓ Component initialization failures are non-fatal (except LLM)
+2. ✓ Individual document failures don't stop pipeline
+3. ✓ Errors are captured in ProcessingResult
+4. ✓ Failed documents listed in final output
+
+## Expected Log Patterns
+
+### Successful Document Processing
+```
+INFO - Validating document: example.pdf
+INFO - LLM processing: example.pdf
+INFO - LLM categorized 'example.pdf' as: Medical Record
+INFO - LLM summary for 'example.pdf': Medical examination report for patient
+INFO - Generated filename for 'example.pdf': Patient_Medical_Examination
+INFO - Bates numbered: TEST000001-TEST000005
+INFO - Exhibit marked: Exhibit 1 - Patient_Medical_Examination.pdf
+INFO - Processing vectors...
+INFO - Created 12 vector chunks
+INFO - Stored in PostgreSQL with ID: 1
+```
+
+### Failed Document Processing
+```
+ERROR - Processing failed for example.pdf: [error message]
+```
+
+### Component Initialization
+```
+INFO - Initializing LLM with provider: openai
+INFO - Vector search enabled - documents will be indexed for semantic search
+INFO - PostgreSQL storage enabled - document text will be stored in database
+INFO - VectorProcessor initialized with LangChain components
+INFO - PostgreSQL connection pool initialized (size: 5)
+INFO - PostgreSQL tables created/verified successfully
+```
+
+## Performance Metrics
+
+### Expected Processing Times
+- LLM Operations: 0.5-2s per document
+- PDF Processing: 0.1-0.5s per page
+- Vector Embedding: 0.5-1s per document
+- Database Storage: 0.1-0.3s per document
+
+### Resource Usage
+- Memory: ~100-500MB depending on PDF size
+- CPU: Moderate during PDF processing
+- Network: API calls for LLM operations
+- Disk I/O: Read source, write outputs
+
+## Troubleshooting Guide
+
+### Common Issues
+1. **LLM Initialization Failure**
+   - Check API keys in .env
+   - Verify Ollama is running (if using local)
+   - Check network connectivity
+
+2. **Vector Processing Failure**
+   - Verify Ollama embedding model is available
+   - Check disk space for vector store
+
+3. **PostgreSQL Connection Failure**
+   - Verify connection string
+   - Check database server is running
+   - Verify credentials and permissions
+
+4. **PDF Processing Errors**
+   - Check PDF is not corrupted
+   - Verify sufficient disk space
+   - Check file permissions
+
+### Debug Mode
+Enable debug logging by setting log level in config:
+```python
+logging.getLogger().setLevel(logging.DEBUG)
+```
+
+This will show:
+- Detailed LCEL chain execution
+- LangSmith tracing (if enabled)
+- Database query details
+- Vector processing statistics

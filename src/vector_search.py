@@ -7,10 +7,14 @@ import logging
 from typing import List, Dict, Optional
 from pathlib import Path
 
-from langchain_community.embeddings import OllamaEmbeddings
-from langchain_community.vectorstores import Chroma
+from langchain_ollama import OllamaEmbeddings
+from langchain_chroma import Chroma
 
-from src.config import VECTOR_STORE_PATH, EMBEDDING_MODEL, OLLAMA_HOST
+from src.config import (
+    VECTOR_STORE_PATH, EMBEDDING_MODEL, OLLAMA_HOST,
+    LLM_PROVIDER, LMSTUDIO_HOST, LMSTUDIO_EMBEDDING_MODEL
+)
+from src.lmstudio_embeddings import LMStudioEmbeddings
 
 logger = logging.getLogger(__name__)
 
@@ -26,11 +30,18 @@ class VectorSearcher:
         if not self.vector_store_path.exists():
             raise ValueError(f"Vector store not found at {self.vector_store_path}")
         
-        # Initialize LangChain components
-        self.embeddings = OllamaEmbeddings(
-            model=EMBEDDING_MODEL,
-            base_url=OLLAMA_HOST
-        )
+        # Initialize LangChain components with provider-specific embeddings
+        if LLM_PROVIDER == "lmstudio":
+            self.embeddings = LMStudioEmbeddings(
+                base_url=LMSTUDIO_HOST,
+                model=LMSTUDIO_EMBEDDING_MODEL
+            )
+        else:
+            # Default to Ollama embeddings
+            self.embeddings = OllamaEmbeddings(
+                model=EMBEDDING_MODEL,
+                base_url=OLLAMA_HOST
+            )
         
         self.vector_store = Chroma(
             collection_name="legal_documents",
@@ -85,8 +96,8 @@ class VectorSearcher:
                     "category": doc.metadata.get("category", "Unknown"),
                     "exhibit_number": doc.metadata.get("exhibit_number", 0),
                     "page": doc.metadata.get("page", 0),
-                    "bates_start": int(doc.metadata.get("bates_start", "0")),
-                    "bates_end": int(doc.metadata.get("bates_end", "0")),
+                    "bates_start": doc.metadata.get("bates_start", "N/A"),
+                    "bates_end": doc.metadata.get("bates_end", "N/A"),
                     "summary": doc.metadata.get("summary", "")
                 }
                 results.append(result)

@@ -12,8 +12,44 @@ OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini-2024-07-18")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 
+# LM Studio Configuration (OpenAI-compatible)
+LMSTUDIO_HOST = os.getenv("LMSTUDIO_HOST", "http://localhost:1234/v1")
+LMSTUDIO_MODEL = os.getenv("LMSTUDIO_MODEL", "mlx-community/Qwen2.5-7B-Instruct-4bit")
+LMSTUDIO_VISION_MODEL = os.getenv("LMSTUDIO_VISION_MODEL", "mlx-community/Qwen2.5-VL-3B-Instruct-4bit")
+LMSTUDIO_EMBEDDING_MODEL = os.getenv("LMSTUDIO_EMBEDDING_MODEL", "nomic-ai/nomic-embed-text-v1.5-GGUF")
+LMSTUDIO_MAX_TOKENS = int(os.getenv("LMSTUDIO_MAX_TOKENS", "2048"))
+LMSTUDIO_CONTEXT_LENGTH = int(os.getenv("LMSTUDIO_CONTEXT_LENGTH", "32768"))
+
+# Multi-Model Configuration for LM Studio
+# Allows using different models for different tasks in the pipeline
+LMSTUDIO_VISUAL_MODEL = os.getenv("LMSTUDIO_VISUAL_MODEL", "pixtral-12b")
+LMSTUDIO_REASONING_MODEL = os.getenv("LMSTUDIO_REASONING_MODEL", "mathstral-7b-v0.1")
+LMSTUDIO_CATEGORIZATION_MODEL = os.getenv("LMSTUDIO_CATEGORIZATION_MODEL", LMSTUDIO_MODEL)  # Default to base model
+LMSTUDIO_SYNTHESIS_MODEL = os.getenv("LMSTUDIO_SYNTHESIS_MODEL", "llama-4-scout-17b-16e-mlx-text")
+# Embedding model already defined above as LMSTUDIO_EMBEDDING_MODEL
+
+# Task mapping for multi-model pipeline
+LMSTUDIO_MODEL_MAPPING = {
+    "visual": LMSTUDIO_VISUAL_MODEL,
+    "reasoning": LMSTUDIO_REASONING_MODEL,
+    "categorization": LMSTUDIO_CATEGORIZATION_MODEL,
+    "synthesis": LMSTUDIO_SYNTHESIS_MODEL,
+    "embedding": LMSTUDIO_EMBEDDING_MODEL
+}
+
+# Enable multi-model pipeline (auto-enabled if multiple models are configured)
+ENABLE_MULTI_MODEL = os.getenv("ENABLE_MULTI_MODEL", "auto").lower()
+if ENABLE_MULTI_MODEL == "auto":
+    # Check if multiple different models are configured
+    unique_models = set(LMSTUDIO_MODEL_MAPPING.values())
+    unique_models.discard("")  # Remove empty strings
+    unique_models.discard("none")  # Remove "none" values
+    ENABLE_MULTI_MODEL = len(unique_models) > 1
+else:
+    ENABLE_MULTI_MODEL = ENABLE_MULTI_MODEL == "true"
+
 # Validate provider selection
-if LLM_PROVIDER not in ["openai", "ollama"]:
+if LLM_PROVIDER not in ["openai", "ollama", "lmstudio"]:
     print(f"WARNING: Invalid LLM_PROVIDER '{LLM_PROVIDER}'. Defaulting to 'openai'.")
     LLM_PROVIDER = "openai"
 
@@ -88,8 +124,8 @@ CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "150"))
 PDF_DPI = int(os.getenv("PDF_DPI", "300"))
 EMBEDDING_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "16"))
 MAX_CHUNKS_PER_DOCUMENT = int(os.getenv("MAX_CHUNKS_PER_DOCUMENT", "100"))
-ENABLE_VISION_OCR = os.getenv("ENABLE_VISION_OCR", "false").lower() == "true"
-VISION_OCR_MODEL = os.getenv("VISION_OCR_MODEL", "llava")
+ENABLE_VISION_OCR = os.getenv("ENABLE_VISION_OCR", "true").lower() == "true"
+VISION_OCR_MODEL = os.getenv("VISION_OCR_MODEL", "google/gemma-3-12b")
 
 # --- PostgreSQL Storage Configuration ---
 ENABLE_POSTGRES_STORAGE = os.getenv("ENABLE_POSTGRES_STORAGE", "false").lower() == "true"
@@ -100,7 +136,35 @@ POSTGRES_CONNECTION = os.getenv(
 POSTGRES_POOL_SIZE = int(os.getenv("POSTGRES_POOL_SIZE", "5"))
 STORE_PAGE_LEVEL_TEXT = os.getenv("STORE_PAGE_LEVEL_TEXT", "true").lower() == "true"
 
+# --- Caching Configuration ---
+ENABLE_MODEL_CACHE = os.getenv("ENABLE_MODEL_CACHE", "true").lower() == "true"
+ENABLE_DISK_CACHE = os.getenv("ENABLE_DISK_CACHE", "false").lower() == "true"
+CACHE_DIR = os.getenv("CACHE_DIR", "cache")
+MEMORY_CACHE_SIZE = int(os.getenv("MEMORY_CACHE_SIZE", "1000"))
+CACHE_TTL_HOURS = int(os.getenv("CACHE_TTL_HOURS", "24"))
+
+# --- LangSmith Tracing Configuration ---
+LANGSMITH_TRACING = os.getenv("LANGSMITH_TRACING", "false").lower() == "true"
+LANGSMITH_ENDPOINT = os.getenv("LANGSMITH_ENDPOINT", "https://api.smith.langchain.com")
+LANGSMITH_API_KEY = os.getenv("LANGSMITH_API_KEY")
+LANGSMITH_PROJECT = os.getenv("LANGSMITH_PROJECT", "bates_number_demo")
+
+# For backward compatibility with LangChain's expected environment variables
+if LANGSMITH_TRACING:
+    os.environ["LANGCHAIN_TRACING_V2"] = "true"
+    if LANGSMITH_API_KEY:
+        os.environ["LANGCHAIN_API_KEY"] = LANGSMITH_API_KEY
+    if LANGSMITH_PROJECT:
+        os.environ["LANGCHAIN_PROJECT"] = LANGSMITH_PROJECT
+
 # --- Validation ---
 if LLM_PROVIDER == "openai" and not OPENAI_API_KEY:
     # This check is more for guiding the developer; main.py will handle user-facing errors.
     print("WARNING: OPENAI_API_KEY is not set in the environment or .env file.")
+
+if LANGSMITH_TRACING and not LANGSMITH_API_KEY:
+    print("WARNING: LANGSMITH_TRACING is enabled but LANGSMITH_API_KEY is not set.")
+
+if LANGSMITH_TRACING:
+    print(f"INFO: LangSmith tracing enabled for project: {LANGSMITH_PROJECT}")
+    print(f"INFO: LangSmith endpoint: {LANGSMITH_ENDPOINT}")

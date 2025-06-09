@@ -39,7 +39,7 @@ python setup_ollama.py  # One-time setup
 python src/main.py
 ```
 
-### Testing (when implemented)
+### Testing
 ```bash
 # Run all tests
 pytest
@@ -61,12 +61,20 @@ pytest --cov=src tests/
 - **src/llm_handler.py**: Unified LLM interface supporting both OpenAI API and local Ollama models
 - **src/pdf_processor.py**: PDF manipulation including Bates stamping and exhibit marking using PyPDF/ReportLab
 - **src/utils.py**: Shared utilities for logging and directory management
+- **src/vector_processor.py**: LangChain-based vector embeddings and ChromaDB management
+- **src/db_storage.py**: PostgreSQL integration for full-text search
+- **src/search_cli.py**: Command-line interface for hybrid search functionality
+- **src/document_orchestrator.py**: Production-ready orchestration with caching and batch processing
+- **src/vision_ocr.py**: Vision model OCR extraction for scanned/image PDFs
 
 ### Key Design Patterns
-1. **Provider Abstraction**: LLMHandler class abstracts OpenAI/Ollama differences, allowing seamless switching via config
+1. **Provider Abstraction**: LLMHandler class abstracts OpenAI/Ollama/LM Studio differences, allowing seamless switching via config
 2. **Sequential Processing**: Documents processed in sorted order to ensure consistent Bates numbering
 3. **Dual Output Strategy**: Generates both Bates-only and full exhibit versions for flexibility
 4. **Category-Based Organization**: Auto-creates subdirectories based on LLM classification
+5. **LangChain Integration**: Fully refactored to use LangChain for LLMs, embeddings, and vector stores
+6. **Hybrid Search**: Combines vector embeddings with PostgreSQL full-text search for comprehensive retrieval
+7. **Production Orchestration**: Document processing with caching, parallel processing, and performance monitoring
 
 ### Document Categories
 - Pleading, Medical Record, Bill, Correspondence, Photo, Video, Documentary Evidence, Uncategorized
@@ -101,7 +109,7 @@ output/
 - src/ directory contains ONLY production code
 - Modifications to core scripts must be minimal and well-documented
 - New functionality added through configuration, not new files
-- Core modules: main.py, config.py, llm_handler.py, pdf_processor.py, utils.py
+- Core modules: main.py, config.py, llm_handler.py, pdf_processor.py, utils.py, vector_processor.py, db_storage.py, search_cli.py, document_orchestrator.py
 
 ### DEBUGGING PROTOCOL
 - For debugging: use existing tests in tests/ structure
@@ -137,5 +145,46 @@ REMEMBER: This is production code serving legal document processing. Maintain di
   - context_1_implementation_plan.md - Original implementation blueprint
   - context_2_verification_criteria.md - Testing and verification standards
   - context_3_local_model_implementation.md - Ollama integration details
-  - context_4_vector_search_implementation.md - Future vector search plans
+  - context_18_langchain_refactor_complete.md - LangChain refactoring documentation
+  - context_38_manifest_implementation_complete.md - Manifest system for processing tracking
+  - context_40_lmstudio_mlx_implementation.md - LM Studio MLX model support
+  - context_50_vision_ocr_implementation_complete.md - Vision OCR capabilities
 - Plan using deep thought and emphasize the production of reliable, pragmatic and fit for purpose code
+
+## Project Memory
+
+- This project is a robust local implementation of a RAG (Retrieval-Augmented Generation) process
+- ALL data, embeddings, etc. are saved in appropriate local storage:
+  - ChromaDB: `vector_store/` directory for embeddings
+  - PostgreSQL: Optional database for full-text search
+  - Cache: `cache/` directory for LLM response caching
+  - Manifests: JSON files tracking processing state
+
+## LM Studio Support
+
+- Supports Apple Silicon MLX models via LM Studio's OpenAI-compatible API
+- Run `python test_lmstudio.py` to discover available models
+- Configure in .env with `LLM_PROVIDER=lmstudio`
+- See LMSTUDIO_SETUP.md for detailed configuration
+
+## Search and Retrieval
+
+The system provides hybrid search capabilities:
+```bash
+# Semantic vector search
+python src/search_cli.py "legal motion"
+
+# Full-text PostgreSQL search
+python src/search_cli.py "exact phrase" --search-engine postgres
+
+# Compare both engines
+python src/search_cli.py "discovery documents" --search-engine both
+```
+
+## Performance Optimization
+
+- Batch processing with configurable batch sizes
+- LLM response caching to avoid redundant API calls
+- Parallel PDF processing when possible
+- Manifest system for resumable processing
+- Vision OCR only for PDFs with low text extraction confidence

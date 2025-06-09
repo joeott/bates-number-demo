@@ -16,6 +16,7 @@ from src.vector_search import VectorSearcher
 from src.utils import setup_logging
 from src.config import VECTOR_STORE_PATH, ENABLE_POSTGRES_STORAGE, POSTGRES_CONNECTION, POSTGRES_POOL_SIZE
 from src.db_storage import PostgresStorage
+from src.hybrid_search import HybridSearcher, SearchMethod
 
 
 def format_bates_range(start: int, end: int) -> str:
@@ -36,7 +37,29 @@ def display_results(results, verbose: bool = False, search_type: str = "vector")
     for i, result in enumerate(results, 1):
         print(f"--- Result {i} ---")
         
-        if search_type == "postgres":
+        # Handle both SearchResult objects and dictionary results
+        if hasattr(result, 'document_id'):
+            # SearchResult object from hybrid search
+            print(f"Document: {result.filename}")
+            print(f"Category: {result.category}")
+            print(f"Exhibit #: {result.exhibit_number}")
+            print(f"Bates: {result.bates_range}")
+            if hasattr(result, 'page') and result.page:
+                print(f"Page: {result.page}")
+            print(f"Score: {result.score:.4f}")
+            if result.source:
+                print(f"Source: {result.source}")
+            
+            # Show excerpt
+            text = result.text
+            max_excerpt_length = 300 if not verbose else 500
+            if len(text) > max_excerpt_length:
+                excerpt = text[:max_excerpt_length] + "..."
+            else:
+                excerpt = text
+            print(f"Excerpt: {excerpt}")
+            
+        elif search_type == "postgres":
             # PostgreSQL result format
             print(f"Document: {result['exhibit_filename']}")
             print(f"Category: {result['category']}")
@@ -120,7 +143,7 @@ Examples:
                         help="List available categories")
     
     # Search engine selection
-    parser.add_argument("--search-engine", choices=["vector", "postgres", "both"],
+    parser.add_argument("--search-engine", choices=["vector", "postgres", "hybrid", "both"],
                         default="vector", help="Search engine to use")
     
     # Path options
@@ -142,6 +165,7 @@ Examples:
     # Initialize search components based on engine selection
     vector_searcher = None
     postgres_searcher = None
+    hybrid_searcher = None
     
     if args.search_engine in ["vector", "both"]:
         try:
@@ -165,9 +189,41 @@ Examples:
             if args.search_engine == "postgres":
                 sys.exit(1)
     
+    if args.search_engine == "hybrid":
+        try:
+            hybrid_searcher = HybridSearcher(
+                vector_store_path=str(args.vector_store),
+                postgres_config={
+                    'connection_string': POSTGRES_CONNECTION,
+                    'pool_size': POSTGRES_POOL_SIZE
+                } if ENABLE_POSTGRES_STORAGE else None
+            )
+        except Exception as e:
+            print(f"Error: Failed to initialize hybrid search: {e}")
+            sys.exit(1)
+    
     # Handle different operations
     if args.stats:
-        if vector_searcher:
+        if hybrid_searcher:
+            stats = hybrid_searcher.get_statistics()
+            print("\n=== Hybrid Search Statistics ===")
+            if 'vector' in stats:
+                print("Vector Store:")
+                print(f"  Total chunks: {stats['vector'].get('total_chunks', 0)}")
+                print(f"  Categories: {stats['vector'].get('num_categories', 0)}")
+                if stats['vector'].get('categories'):
+                    print(f"  Available categories: {', '.join(stats['vector']['categories'])}")
+            
+            if 'postgres' in stats:
+                print("PostgreSQL:")
+                print(f"  Total documents: {stats['postgres']['overall']['total_documents']}")
+                print(f"  Total pages: {stats['postgres']['overall']['total_pages']}")
+                print(f"  Total characters: {stats['postgres']['overall']['total_chars']:,}")
+                print("  Documents by category:")
+                for cat in stats['postgres']['by_category']:
+                    print(f"    {cat['category']}: {cat['count']} documents, {cat['total_pages']} pages")
+        
+        elif vector_searcher:
             stats = vector_searcher.get_stats()
             print("\n=== Vector Store Statistics ===")
             print(f"Total chunks: {stats.get('total_chunks', 0)}")
@@ -188,11 +244,20 @@ Examples:
         print()
         if postgres_searcher:
             postgres_searcher.close()
+        if hybrid_searcher:
+            hybrid_searcher.close()
         return
     
     if args.categories:
         categories = set()
-        if vector_searcher:
+        if hybrid_searcher:
+            if hybrid_searcher.vector_searcher:
+                categories.update(hybrid_searcher.vector_searcher.get_categories())
+            if hybrid_searcher.postgres_searcher:
+                stats = hybrid_searcher.postgres_searcher.get_statistics()
+                for cat in stats['by_category']:
+                    categories.add(cat['category'])
+        elif vector_searcher:
             categories.update(vector_searcher.get_categories())
         if postgres_searcher:
             stats = postgres_searcher.get_statistics()
@@ -206,6 +271,8 @@ Examples:
         
         if postgres_searcher:
             postgres_searcher.close()
+        if hybrid_searcher:
+            hybrid_searcher.close()
         return
     
     # Perform search
@@ -258,6 +325,22 @@ Examples:
                     results = [r for r in results if r['exhibit_id'] == args.exhibit]
                 display_results(results, verbose=args.verbose, search_type="postgres")
             
+            elif args.search_engine == "hybrid":
+                # Determine search method and filters
+                filters = {}
+                if args.category:
+                    filters['category'] = args.category
+                if args.exhibit is not None:
+                    filters['exhibit_number'] = args.exhibit
+                
+                results = hybrid_searcher.search(
+                    query=args.query,
+                    method=SearchMethod.HYBRID,
+                    limit=args.num_results,
+                    filters=filters
+                )
+                display_results(results, verbose=args.verbose, search_type="hybrid")
+            
             elif args.search_engine == "both":
                 print("\n=== Vector Search Results ===")
                 if vector_searcher:
@@ -290,6 +373,8 @@ Examples:
     finally:
         if postgres_searcher:
             postgres_searcher.close()
+        if hybrid_searcher:
+            hybrid_searcher.close()
 
 
 if __name__ == "__main__":

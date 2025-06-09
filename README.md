@@ -10,7 +10,7 @@ This tool automates the process of Bates numbering and exhibit marking for legal
 - **Vector Search**: Semantic search across all processed documents using embeddings
 - **Full-Text Storage**: PostgreSQL storage for full-text search capabilities
 - **CLI Tools**: Command-line interfaces for processing and searching documents
-- **Multi-Model Support**: Supports OpenAI, Ollama, and AWS Bedrock for vision and language tasks
+- **Multi-Model Support**: Supports OpenAI, Ollama, LM Studio (MLX models), and AWS Bedrock for vision and language tasks
 
 ### Document Categories
 - Pleading
@@ -53,7 +53,9 @@ This tool automates the process of Bates numbering and exhibit marking for legal
    cp .env.template .env
    ```
    Edit `.env` and configure:
-   - `OPENAI_API_KEY`: Your OpenAI API key
+   - **For OpenAI**: Set `OPENAI_API_KEY` and `LLM_PROVIDER=openai`
+   - **For Ollama**: Set `LLM_PROVIDER=ollama` and run `python setup_ollama.py`
+   - **For LM Studio**: Set `LLM_PROVIDER=lmstudio` (see LMSTUDIO_SETUP.md)
    - `ENABLE_POSTGRES_STORAGE`: Set to "true" for PostgreSQL support
    - `POSTGRES_CONNECTION`: PostgreSQL connection string
    - Other optional settings
@@ -150,11 +152,15 @@ Key environment variables in `.env`:
 
 ```bash
 # LLM Provider
-LLM_PROVIDER=openai  # or ollama, bedrock
+LLM_PROVIDER=openai  # or ollama, lmstudio, bedrock
 
 # OpenAI
 OPENAI_API_KEY=your-key-here
-OPENAI_CATEGORIZATION_MODEL=gpt-4-turbo
+OPENAI_MODEL=gpt-4o-mini-2024-07-18
+
+# LM Studio (for Apple Silicon MLX models)
+LMSTUDIO_HOST=http://localhost:1234/v1
+LMSTUDIO_MODEL=mlx-community/Qwen2.5-7B-Instruct-4bit
 
 # PostgreSQL (optional)
 ENABLE_POSTGRES_STORAGE=true

@@ -11,8 +11,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # LangChain imports
 from langchain.docstore.document import Document
-from langchain_community.embeddings import OllamaEmbeddings
-from langchain_community.vectorstores import Chroma
+from langchain_ollama import OllamaEmbeddings
+from langchain_chroma import Chroma
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain.document_loaders.base import BaseLoader
 
@@ -31,8 +31,13 @@ from .config import (
     EMBEDDING_BATCH_SIZE,
     ENABLE_VISION_OCR,
     VISION_OCR_MODEL,
-    OLLAMA_HOST
+    OLLAMA_HOST,
+    LLM_PROVIDER,
+    LMSTUDIO_HOST,
+    LMSTUDIO_EMBEDDING_MODEL
 )
+from .lmstudio_embeddings import LMStudioEmbeddings
+from .vision_ocr import get_vision_ocr
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +52,7 @@ class PDFToLangChainLoader(BaseLoader):
         self.file_path = file_path
         self.enable_vision_ocr = enable_vision_ocr
         self.vision_model = vision_model
-        self.ollama_client = ollama.Client(host=OLLAMA_HOST) if enable_vision_ocr else None
+        self.vision_ocr = get_vision_ocr() if enable_vision_ocr else None
     
     def load(self) -> List[Document]:
         """Load PDF and return list of LangChain Documents (one per page)."""
@@ -65,10 +70,21 @@ class PDFToLangChainLoader(BaseLoader):
                     text = page.extract_text()
                     
                     # If text is too short and vision OCR is enabled, try vision model
-                    if self.enable_vision_ocr and len(text.strip()) < 50 and self.vision_model:
-                        logger.info(f"Page {page_num + 1} has minimal text, attempting vision OCR...")
-                        # Note: This is a placeholder - actual vision OCR implementation would go here
-                        # For now, we'll use the PyPDF text
+                    if self.enable_vision_ocr and self.vision_ocr and self.vision_ocr.enabled and len(text.strip()) < 100:
+                        logger.info(f"Page {page_num + 1} has minimal text ({len(text.strip())} chars), attempting vision OCR...")
+                        
+                        # Use vision OCR to extract text
+                        vision_text = self.vision_ocr.extract_text_from_pdf_page(
+                            Path(self.file_path), 
+                            page_num + 1  # Vision OCR uses 1-based page numbers
+                        )
+                        
+                        # Use vision text if it's significantly better
+                        if vision_text and len(vision_text.strip()) > len(text.strip()):
+                            logger.info(f"Vision OCR extracted {len(vision_text)} characters (vs {len(text.strip())} from PyPDF)")
+                            text = vision_text
+                        else:
+                            logger.info(f"Vision OCR did not improve extraction ({len(vision_text)} chars)")
                     
                     # Create LangChain Document
                     doc = Document(
@@ -98,11 +114,18 @@ class VectorProcessor:
         self.vector_store_path = Path(vector_store_path)
         self.vector_store_path.mkdir(parents=True, exist_ok=True)
         
-        # Initialize LangChain components
-        self.embeddings = OllamaEmbeddings(
-            model=EMBEDDING_MODEL,
-            base_url=OLLAMA_HOST
-        )
+        # Initialize LangChain components with provider-specific embeddings
+        if LLM_PROVIDER == "lmstudio":
+            self.embeddings = LMStudioEmbeddings(
+                base_url=LMSTUDIO_HOST,
+                model=LMSTUDIO_EMBEDDING_MODEL
+            )
+        else:
+            # Default to Ollama embeddings
+            self.embeddings = OllamaEmbeddings(
+                model=EMBEDDING_MODEL,
+                base_url=OLLAMA_HOST
+            )
         
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=CHUNK_SIZE,
