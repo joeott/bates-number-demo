@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Legal Document Retriever</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container" role="main">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-content">
+                <h1>Legal Document Retriever</h1>
+                <p class="subtitle">AI-powered search and analysis for legal documents</p>
+            </div>
+            <div class="header-stats" id="headerStats">
+                <span class="stat-item">
+                    <span class="stat-label">Status:</span>
+                    <span id="apiStatus" class="stat-value status-checking" role="status" aria-live="polite">Checking...</span>
+                </span>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="app-main">
+            <div class="content-wrapper">
+                <!-- Query Section -->
+                <section class="query-section card">
+                    <div class="section-header">
+                        <h2>Ask a Question</h2>
+                        <p class="helper-text">Enter your legal question and our AI will search through the documents to find relevant information.</p>
+                    </div>
+                    
+                    <form id="queryForm" class="query-form" role="search">
+                        <div class="form-group">
+                            <label for="queryInput" class="form-label">Your Question</label>
+                            <textarea 
+                                id="queryInput" 
+                                name="query"
+                                class="form-textarea"
+                                placeholder="e.g., What evidence supports the breach of contract claim? What are the damages claimed?"
+                                rows="4"
+                                required
+                                maxlength="1000"
+                                aria-label="Enter your legal question"
+                                aria-describedby="queryHelp charCount"
+                            ></textarea>
+                            <div class="form-help">
+                                <span id="charCount" class="char-count">0 / 1000</span>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="maxIterations" class="form-label">Search Depth</label>
+                            <select id="maxIterations" name="maxIterations" class="form-select">
+                                <option value="">Default</option>
+                                <option value="1">Quick (1 iteration)</option>
+                                <option value="2">Standard (2 iterations)</option>
+                                <option value="3">Thorough (3 iterations)</option>
+                                <option value="5">Exhaustive (5 iterations)</option>
+                            </select>
+                        </div>
+
+                        <div class="form-actions">
+                            <button type="submit" id="submitBtn" class="btn btn-primary" aria-label="Search legal documents">
+                                <span class="btn-text">Search Documents</span>
+                                <svg class="btn-icon spinner hidden" viewBox="0 0 24 24" aria-hidden="true">
+                                    <circle class="spinner-circle" cx="12" cy="12" r="10" fill="none" stroke-width="2"></circle>
+                                </svg>
+                            </button>
+                        </div>
+                    </form>
+                </section>
+
+                <!-- Error Message -->
+                <div id="errorAlert" class="alert alert-error hidden" role="alert" aria-live="assertive">
+                    <div class="alert-content">
+                        <strong>Error:</strong>
+                        <span id="errorMessage"></span>
+                    </div>
+                    <button type="button" class="alert-close" onclick="hideError()" aria-label="Close error message">×</button>
+                </div>
+
+                <!-- Results Section -->
+                <section id="resultsSection" class="results-section hidden" aria-live="polite" aria-label="Search results">
+                    <div class="card">
+                        <div class="section-header">
+                            <h2>Answer</h2>
+                            <div id="resultMeta" class="result-meta"></div>
+                        </div>
+                        <div id="answerContent" class="answer-content"></div>
+                    </div>
+                </section>
+
+                <!-- Query History -->
+                <section id="historySection" class="history-section">
+                    <div class="card">
+                        <div class="section-header">
+                            <h2>Recent Queries</h2>
+                            <button type="button" class="btn btn-text" onclick="clearHistory()" aria-label="Clear search history">Clear</button>
+                        </div>
+                        <div id="historyList" class="history-list">
+                            <p class="empty-state">No queries yet. Ask a question to get started!</p>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="app-footer">
+            <p>Powered by Iterative Retrieval Agent | <a href="/api/docs" target="_blank">API Documentation</a></p>
+        </footer>
+    </div>
+
+    <!-- Scripts -->
+    <script src="script.js"></script>
+</body>
+</html>

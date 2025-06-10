@@ -1,8 +1,20 @@
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
-load_dotenv()
+
+# Find the project root by looking for .env file
+current_dir = Path(__file__).parent
+project_root = current_dir.parent
+
+
+# Load environment variables from .env file in project root
+env_path = project_root / '.env'
+if env_path.exists():
+    load_dotenv(env_path)
+else:
+    # Fallback to default behavior
+    load_dotenv()
 
 # --- LLM Provider Configuration ---
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai").lower()

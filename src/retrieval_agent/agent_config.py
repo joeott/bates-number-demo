@@ -55,3 +55,24 @@ MAX_CHUNK_LENGTH = 2000  # Characters
 # --- Future Enhancement Flags ---
 ENABLE_SQL_SEARCH = False  # When True, enables PostgreSQL keyword search tool
 ENABLE_CROSS_ENCODER_RERANKING = False  # For future local re-ranking model
+
+# --- Hybrid Search Configuration ---
+ENABLE_HYBRID_SEARCH = True  # Enable hybrid search combining vector and PostgreSQL
+DEFAULT_SEARCH_METHOD = "hybrid"  # "vector", "postgres", or "hybrid"
+HYBRID_WEIGHT_VECTOR = 0.7  # Weight for vector search results in hybrid mode
+HYBRID_WEIGHT_KEYWORD = 0.3  # Weight for keyword search results in hybrid mode
+
+# For LangChain's EnsembleRetriever (if we switch to that)
+ENSEMBLE_WEIGHTS = [0.7, 0.3]  # Vector weight, keyword weight
+ENSEMBLE_ID_KEY = "doc_id"  # For document deduplication
+
+# --- Re-ranking Configuration ---
+ENABLE_RERANKING = True  # Enable cross-encoder reranking
+RERANKER_MODEL = "gpustack/bge-reranker-v2-m3-GGUF"  # LM Studio model for reranking
+RERANKER_TOP_N = 5  # Number of top documents to keep after reranking
+PRE_RERANK_MULTIPLIER = 3  # Get 3x results before re-ranking (e.g., 15 to rerank to 5)
+
+# --- Contextual Compression Configuration ---
+ENABLE_CONTEXTUAL_COMPRESSION = False  # Temporarily disabled due to import issue
+COMPRESSION_METHOD = "extract"  # "extract" to extract relevant parts, "filter" to filter out irrelevant
+MAX_COMPRESSED_LENGTH = 500  # Maximum length (characters) for compressed text

@@ -15,9 +15,9 @@ from pydantic import BaseModel, Field, field_validator
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser, PydanticOutputParser
 from langchain_core.runnables import RunnablePassthrough, RunnableParallel
+
 from langchain_core.language_models import BaseChatModel
 from langchain_openai import ChatOpenAI
-from langchain_ollama import ChatOllama
 
 # Configuration imports
 from src.config import (
@@ -147,6 +147,15 @@ class LLMCategorizer:
                 max_tokens=50
             )
         elif provider == "ollama":
+            # Only import if using Ollama
+            try:
+                from langchain_ollama import ChatOllama
+            except ImportError:
+                raise ImportError(
+                    "langchain-ollama is required for Ollama provider. "
+                    "Install with: pip install langchain-ollama"
+                )
+            
             # Verify Ollama is running
             try:
                 import ollama

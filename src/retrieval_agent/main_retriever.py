@@ -13,18 +13,13 @@ import sys
 
 from langchain_core.runnables import RunnableLambda, RunnablePassthrough, RunnableBranch
 from langchain_core.output_parsers import StrOutputParser
-try:
-    from langchain_ollama import ChatOllama
-except ImportError:
-    from langchain_community.chat_models import ChatOllama  # Fallback to community version
 
 # Add project root to path for imports
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 # Local imports
 from . import agent_config, agent_prompts, output_parsers, agent_tools
-from src.config import OLLAMA_MODEL, OLLAMA_HOST  # Or use agent_config for models
-from src.llm_handler import LLMCategorizer  # Could reuse or define agent-specific LLM instances
+from src.llm_handler import LLMCategorizer  # Use unified LLM handler
 
 logger = logging.getLogger(__name__)
 
@@ -49,16 +44,13 @@ class IterativeRetrieverAgent:
         """
         self.max_iterations = max_iterations
         
-        # Initialize LLM (can be shared or specific for agent tasks)
-        # For simplicity, using a new ChatOllama instance here.
-        # You could also pass an LLM instance from llm_handler.
-        self.llm = ChatOllama(
-            model=OLLAMA_MODEL,  # Or a model from agent_config
-            base_url=OLLAMA_HOST,
-            temperature=agent_config.AGENT_LLM_TEMPERATURE  # Low temperature for predictability
-        )
+        # Initialize LLM using the unified handler to respect LLM_PROVIDER setting
+        llm_handler = LLMCategorizer()  # Will use LLM_PROVIDER from config
+        self.llm = llm_handler.llm
+        # Set temperature on the LLM instance
+        self.llm.temperature = agent_config.AGENT_LLM_TEMPERATURE
         
-        logger.info(f"Initialized IterativeRetrieverAgent with model: {OLLAMA_MODEL}, max_iterations: {max_iterations}")
+        logger.info(f"Initialized IterativeRetrieverAgent with LLM provider: {llm_handler.provider}, max_iterations: {max_iterations}")
 
         # --- Define LCEL Sub-Chains ---
         
@@ -275,21 +267,43 @@ class IterativeRetrieverAgent:
                 logger.info(f"Processing Sub-query {sub_query_idx+1}/{len(sub_queries_to_process)}: '{sub_query}'")
                 executed_queries.append(sub_query)
                 
-                # Execute Vector Search Tool
-                logger.info(f"Executing vector search with filters: {current_filters}")
+                # Execute Search Tool (Hybrid or Vector)
+                search_method = agent_config.DEFAULT_SEARCH_METHOD if agent_config.ENABLE_HYBRID_SEARCH else "vector"
+                logger.info(f"Executing {search_method} search with filters: {current_filters}")
+                
+                # Calculate number of results to fetch (more if reranking is enabled)
+                num_results = agent_config.NUM_RESULTS_PER_SUB_QUERY
+                if agent_config.ENABLE_RERANKING:
+                    num_results = agent_config.NUM_RESULTS_PER_SUB_QUERY * agent_config.PRE_RERANK_MULTIPLIER
+                    logger.info(f"Fetching {num_results} results for reranking to top {agent_config.NUM_RESULTS_PER_SUB_QUERY}")
+                
                 try:
-                    tool_input = {
-                        "query_text": sub_query,
-                        "k_results": agent_config.NUM_RESULTS_PER_SUB_QUERY,
-                        "metadata_filters": current_filters
-                    }
-                    search_results: List[Dict] = agent_tools.perform_vector_search.invoke(
-                        tool_input, 
-                        config=run_config
-                    )
-                    logger.info(f"Retrieved {len(search_results)} chunks.")
+                    if agent_config.ENABLE_HYBRID_SEARCH:
+                        # Use hybrid search
+                        tool_input = {
+                            "query_text": sub_query,
+                            "k_results": num_results,
+                            "metadata_filters": current_filters,
+                            "search_method": search_method
+                        }
+                        search_results: List[Dict] = agent_tools.perform_hybrid_search.invoke(
+                            tool_input, 
+                            config=run_config
+                        )
+                    else:
+                        # Fallback to vector search
+                        tool_input = {
+                            "query_text": sub_query,
+                            "k_results": num_results,
+                            "metadata_filters": current_filters
+                        }
+                        search_results: List[Dict] = agent_tools.perform_vector_search.invoke(
+                            tool_input, 
+                            config=run_config
+                        )
+                    logger.info(f"Retrieved {len(search_results)} chunks using {search_method} search.")
                 except Exception as e:
-                    logger.error(f"Vector search failed for sub_query '{sub_query}': {e}", exc_info=True)
+                    logger.error(f"{search_method.capitalize()} search failed for sub_query '{sub_query}': {e}", exc_info=True)
                     search_results = []
                 
                 # Process each chunk and extract facts
@@ -313,6 +327,17 @@ class IterativeRetrieverAgent:
                 logger.info("Maximum iterations reached. Moving to synthesis.")
                 break
             
+            # Calculate information gain
+            info_gain = self._calculate_information_gain(newly_extracted_facts, accumulated_facts[:-len(newly_extracted_facts)])
+            logger.info(f"Information gain from last search: {info_gain:.1%}")
+            
+            # Track explored categories
+            categories_explored = set()
+            for fact in accumulated_facts:
+                if isinstance(fact, dict) and 'source_metadata' in fact:
+                    category = fact['source_metadata'].get('category', 'Unknown')
+                    categories_explored.add(category)
+            
             # Iteration Decision
             logger.info("Making iteration decision...")
             facts_summary = self._format_retrieved_facts_for_llm(accumulated_facts)
@@ -328,7 +353,9 @@ class IterativeRetrieverAgent:
                     "retrieved_facts_summary": facts_summary,
                     "executed_queries_list": "\n".join(f"- {q}" for q in executed_queries),
                     "current_iteration": current_iteration,
-                    "max_iterations": self.max_iterations
+                    "max_iterations": self.max_iterations,
+                    "information_gain": info_gain,
+                    "categories_explored": ", ".join(sorted(categories_explored))
                 }
                 
                 iteration_decision: output_parsers.IterationDecisionOutput = self.iteration_decision_chain.invoke(
@@ -344,6 +371,18 @@ class IterativeRetrieverAgent:
                     sub_queries_to_process = [iteration_decision.next_sub_query]
                     current_keywords = iteration_decision.next_keywords or current_keywords
                     current_filters = iteration_decision.next_filters or current_filters
+                    
+                    # Apply search strategy if specified
+                    if hasattr(iteration_decision, 'search_strategy') and iteration_decision.search_strategy:
+                        agent_config.DEFAULT_SEARCH_METHOD = iteration_decision.search_strategy
+                        logger.info(f"Switching to {iteration_decision.search_strategy} search")
+                    
+                    # Apply category exploration if specified
+                    if hasattr(iteration_decision, 'explore_different_category') and iteration_decision.explore_different_category:
+                        current_filters = current_filters or {}
+                        current_filters['category'] = iteration_decision.explore_different_category
+                        logger.info(f"Exploring category: {iteration_decision.explore_different_category}")
+                    
                     logger.info(f"Continuing with: {iteration_decision.next_sub_query}")
                 else:
                     logger.info("Decision to stop iteration. Moving to synthesis.")
@@ -389,3 +428,39 @@ class IterativeRetrieverAgent:
                 f"I found {len(accumulated_facts)} relevant facts but encountered an error "
                 f"synthesizing the final answer. The facts have been logged for manual review."
             )
+    
+    def _calculate_information_gain(self, new_facts: List[Dict], existing_facts: List[Dict]) -> float:
+        """Calculate how much new information was gained from the latest search.
+        
+        Args:
+            new_facts: Facts extracted from the latest search
+            existing_facts: Previously accumulated facts
+            
+        Returns:
+            Information gain as a ratio (0.0 to 1.0)
+        """
+        if not new_facts:
+            return 0.0
+        
+        # Extract unique statements from existing facts
+        existing_statements = set()
+        for fact in existing_facts:
+            if isinstance(fact, dict) and 'extracted_statement' in fact:
+                statement = fact['extracted_statement']
+                if statement:
+                    # Normalize for comparison
+                    existing_statements.add(statement.lower().strip())
+        
+        # Count new unique statements
+        new_unique_count = 0
+        for fact in new_facts:
+            if isinstance(fact, dict) and 'extracted_statement' in fact:
+                statement = fact['extracted_statement']
+                if statement and statement.lower().strip() not in existing_statements:
+                    new_unique_count += 1
+        
+        # Calculate gain ratio
+        if len(new_facts) == 0:
+            return 0.0
+        
+        return new_unique_count / len(new_facts)

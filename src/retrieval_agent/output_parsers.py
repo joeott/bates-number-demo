@@ -31,6 +31,19 @@ class QueryAnalysisResult(BaseModel):
     analysis_notes: str = Field(
         description="Brief notes on the search strategy."
     )
+    # Enhanced fields for advanced query understanding
+    structured_filters: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Advanced filters with operators (e.g., {'exhibit_number': {'gte': 5, 'lte': 10}})."
+    )
+    use_hypothetical_document: bool = Field(
+        default=False,
+        description="Whether to use HyDE for this query."
+    )
+    hypothetical_document_type: Optional[str] = Field(
+        default=None,
+        description="Type of document to generate for HyDE (e.g., 'pleading', 'medical record')."
+    )
 
 # Create the parser instance
 query_analysis_parser = PydanticOutputParser(pydantic_object=QueryAnalysisResult)
@@ -77,6 +90,15 @@ class IterationDecisionOutput(BaseModel):
     )
     reasoning: str = Field(
         description="Reasoning for the decision and the next step formulation."
+    )
+    # Enhanced fields for better iteration control (optional, with defaults)
+    search_strategy: Optional[str] = Field(
+        default="hybrid",
+        description="Search strategy to use: 'vector', 'postgres', or 'hybrid'."
+    )
+    explore_different_category: Optional[str] = Field(
+        default=None,
+        description="Specific category to explore if switching focus."
     )
 
 # Create the parser instance

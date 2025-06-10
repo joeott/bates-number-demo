@@ -17,22 +17,37 @@ Focus on identifying:
 2. Key legal concepts, entities (people, organizations, specific document types mentioned), dates, or other critical terms.
 3. If the query is complex or multi-faceted, decompose it into 1 to 3 specific sub-queries that can be searched independently.
 4. Suggest any relevant keywords that should be emphasized in a search.
-5. Suggest potential metadata filters if applicable (e.g., document category like "Pleading", "Correspondence"; specific exhibit numbers if mentioned).
+5. Suggest potential metadata filters with operators if applicable.
+6. Determine if hypothetical document generation (HyDE) would help find relevant documents.
+
+Available metadata fields and operators:
+- category: Document category (exact match from: Pleading, Medical Record, Bill, Correspondence, Photo, Video, Documentary Evidence, Uncategorized)
+- exhibit_number: Integer exhibit number (operators: eq, gt, lt, gte, lte)
+- date_range: Date filtering in ISO format (operators: after, before, between)
+- document_type: "scanned", "text", or "mixed"
+- is_ocr_processed: Boolean (true/false)
+- bates_start/bates_end: Bates number ranges (operators: eq, contains)
 
 Respond ONLY with a JSON object with the following fields:
 - main_intent: (string) The core information the user is seeking
 - sub_queries: (array of strings) Specific sub-queries to search for, can be empty if query is simple
 - search_keywords: (array of strings) Key terms to emphasize in searches
 - potential_filters: (object or null) Suggested metadata filters like {{"category": "Pleading"}}
+- structured_filters: (object or null) Advanced filters with operators like {{"exhibit_number": {{"gte": 5, "lte": 10}}}}
+- use_hypothetical_document: (boolean) Whether to generate a hypothetical document for better search
+- hypothetical_document_type: (string or null) Type of document to generate if using HyDE
 - analysis_notes: (string) Brief notes on the search strategy
 
 Example response:
 {{
-  "main_intent": "Find contract price information",
-  "sub_queries": ["contract price Brentwood Glass", "Glass Installation Contract amount"],
-  "search_keywords": ["contract", "price", "Brentwood", "Glass"],
-  "potential_filters": {{"category": "Pleading"}},
-  "analysis_notes": "Searching for contract price specifically related to Brentwood Glass case"
+  "main_intent": "Find medical bills after 2023",
+  "sub_queries": ["medical bills 2023", "hospital invoices 2023"],
+  "search_keywords": ["medical", "bill", "invoice", "hospital", "2023"],
+  "potential_filters": {{"category": "Bill"}},
+  "structured_filters": {{"date_range": {{"after": "2023-01-01"}}}},
+  "use_hypothetical_document": true,
+  "hypothetical_document_type": "medical bill",
+  "analysis_notes": "Searching for medical bills from 2023 onwards, using HyDE to generate typical medical bill content"
 }}
 """
 
@@ -181,6 +196,32 @@ focus on identifying elements of negligence:
 
 Structure your analysis and search strategy around these elements.
 """
+
+# --- HyDE (Hypothetical Document Embeddings) Prompt ---
+HYDE_PROMPT_TEMPLATE = """Write a detailed legal document excerpt that would perfectly answer this question: {question}
+
+The document should:
+1. Use appropriate legal terminology and formatting
+2. Include specific details that would be found in real {document_type} documents
+3. Be written in the style and tone typical of {document_type}
+4. Include relevant dates, names, amounts, or other specific information when applicable
+
+Document excerpt:"""
+
+# --- Advanced Query Expansion Prompt ---
+QUERY_EXPANSION_SYSTEM_MESSAGE = """You are a legal search expert. Expand the given query with:
+1. Synonyms and related terms
+2. Common legal phrasings
+3. Alternative spellings or abbreviations
+4. Related concepts that might appear in relevant documents
+
+Return a JSON object with:
+- expanded_terms: array of additional search terms
+- legal_concepts: array of related legal concepts
+- entity_variations: object mapping entities to their variations"""
+
+QUERY_EXPANSION_HUMAN_MESSAGE = """Original query: {query}
+Expand this query for comprehensive legal document search."""
 
 # --- Helper Functions to Create Prompt Templates ---
 
